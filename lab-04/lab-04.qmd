@@ -1,0 +1,342 @@
+---
+title: "Lab-04"
+author: "Katie Zhao"
+format: html
+editor: visual
+embed-resources: true
+---
+
+## **Learning Goals**
+
+-   Read in and prepare the COVID-19 dataset
+
+-   Create several graphs with different `geoms()` in `ggplot2`
+
+-   Create a facet graph
+
+-   Customize your plots
+
+-   Create a detailed map
+
+**The objective of the lab is to examine the association between weekly average COVID-19 death and vaccination rates in ten regions of the US.**
+
+## 1. READ IN THE DATA
+
+```{r}
+library(tidyverse)
+if (!file.exists("covid_processed.csv"))
+  download.file(
+    url = "https://raw.githubusercontent.com/dmcable/BIOSTAT620W26/main/data/covid/covid_processed.csv",
+    destfile = "covid_processed.csv",
+    method   = "libcurl",
+    timeout  = 60
+    )
+covid <- read.csv("covid_processed.csv")
+```
+
+## 2. PREPARE THE DATA
+
+Since states have different population sizes, make sure that you are working with population-normalized rates (e.g. units cases per 100,000 population). Transform the following variables accordingly: `cases`, `hosp`, `booster`, `series`, `deaths`.
+
+```{r}
+covid <- covid %>% 
+  mutate(cases_normalized = ((cases / pop) * 100000),
+         hosp_normalized = ((hosp / pop) * 100000),
+         booster_normalized = ((booster / pop) * 100000),
+         series_normalized = ((series / pop) * 100000),
+         deaths_normalized = ((deaths / pop) * 100000))
+```
+
+-   Use the `ymd` function from the `lubridate` to convert the date variable to a Date object. This is easier to work with for arithmetic and plotting.
+
+```{r}
+library(lubridate)
+
+covid <- covid %>% 
+  mutate(date = ymd(date))
+
+```
+
+-   Compute the mean by state of the normalized variables above. We recommend creating a new data.frame with the state-averaged data. Keep any other relevant variables from the original data (e.g. population, region etc).
+
+```{r}
+
+covid_state <- covid %>% 
+  summarize(cases = mean(cases_normalized, na.rm = TRUE),
+            hosp = mean(cases_normalized, na.rm = TRUE),
+            booster = mean(booster_normalized, na.rm = TRUE),
+            series = mean(series_normalized, na.rm = TRUE),
+            deaths = mean(deaths_normalized, na.rm = TRUE),
+            pop = mean(pop, na.rm = TRUE),
+            .by = c(state, state_name, region, region_name))
+```
+
+-   Create a binary categorical variable for population.
+
+```{r}
+med_pop <- median(covid_state$pop)
+
+covid_state <- covid_state %>% 
+  mutate(pop_high_low = case_when(
+    pop <= med_pop ~ "Low Population",
+    TRUE ~ "High Population"
+  ))
+```
+
+-   Make sure that region is a factor.
+
+```{r}
+covid_state$region <- factor(covid_state$region)
+covid_state$region_name <- factor(covid_state$region_name)
+```
+
+## 2. **Use `geom_violin` to examine the case rates and death rates by region**
+
+You saw how to use `geom_boxplot` in class. Try using `geom_violin` instead (take a look at the help). (hint: you will need to set the `x` aesthetic to 1)
+
+-   Use facets
+
+-   Fill color by region
+
+-   Describe what you observe in the graph
+
+```{r}
+covid_state %>% 
+  ggplot(aes(x = 1, y = cases, fill = region_name)) +
+  geom_violin() + 
+  facet_wrap(~region_name, nrow = 2) +
+  labs(title = "Average Case Rates, Per Region")
+```
+
+New York Islands and the Pacific regions had states with the lowest minimum average cases (normalized by population), while the South Central, Southeast, Central Plains, Midwest, and Mountain States had higher median average cases overall (and smaller ranges).
+
+```{r}
+covid_state %>% 
+  ggplot(aes(x = 1, y = deaths, fill = region_name)) +
+  geom_violin() + 
+  facet_wrap(~region_name, nrow = 2) +
+  labs(title = "Average Death Rates, Per Region")
+```
+
+Similar to the pattern seen among cases, New York Islands and the Pacific regions had states with the lowest minimum average deaths (normalized by population). The South Central and Southeast regions appeared to have states with higher median average deaths.
+
+### **4. Use `geom_point` with `stat_smooth` to examine the association between time and case rates by region**
+
+-   Filter the data over time to two weeks after the first date in the dataset
+
+-   Color points by region
+
+-   Fit a function with `stat_smooth` by region. Does `method=lm` or the default method work better?
+
+-   For the default `stat_smooth`, play around with the `span` parameter to get a smooth that fits the data better without being too noisy.
+
+-   Describe what you observe in the graph
+
+```{r}
+two_weeks <- min(covid$date) + weeks(2)
+
+covid_scatterplot <- covid %>% 
+  filter(date >= two_weeks)
+
+covid_scatterplot %>% 
+  ggplot(aes(x = date, y = cases_normalized, color = region_name)) +
+  geom_point() + 
+  stat_smooth(span = 0.3) +
+  labs(title = "Case Rates Over Time (2020-2021), Per Region")
+```
+
+I believe the default method for stat_smooth works better than method=lm, because you are about to better see the upward/downward trends within the given time frame, instead of a single linear line that only moves upward.
+
+Overall, there is a general trend where the cases rise from the start of 2020 until January 2021, and then there is a decrease in cases that reaches a minimum in June 2021, before another rise in cases is seen again. With the method=lm, the ability to see that decrease in cases in 2021 is lost.
+
+### **5. Use `geom_bar` to create barplots of the states by population category colored by region**
+
+-   Bars by population category using `position="dodge"`
+
+-   Change colors from the default. Color by region using `scale_fill_brewer` see [this](http://rstudio-pubs-static.s3.amazonaws.com/5312_98fc1aba2d5740dd849a5ab797cc2c8d.html)
+
+-   Create nice labels on the axes and add a title
+
+-   Describe what you observe in the graph
+
+```{r}
+covid_state$pop_high_low <- factor(covid_state$pop_high_low, 
+                                   levels = c("Low Population", 
+                                              "High Population"))
+
+covid_state %>%
+  ggplot(aes(x = pop_high_low, fill = region_name)) +
+  geom_bar(position = "dodge") +
+  scale_fill_brewer(name = "Region Name", palette = "Paired") +
+  labs(title = "Number of States with Low or High Populations, Per Region",
+       x = "Low or High Population", y = "Count")
+```
+
+The Southeast region has the highest count of states in the "High Population" category (7 states), while the Mountain States and New England region have the greatest number of states in the "Low Population" category (5 states).
+
+### **6. Use `stat_summary` to examine mean vaccination rate and death rate by region with standard deviation error bars**
+
+-   Use `fun.data="mean_sdl"` in `stat_summary`. Look up what `mean_sdl` does.
+
+-   Add another layer of `stats_summary` but change the geom to `"errorbar"` (see the help).
+
+-   Describe the graph and what you observe
+
+-   Vaccination rates are …
+
+-   Death rates are…
+
+```{r}
+covid_state %>% 
+  ggplot() +
+  stat_summary(aes(x = region_name, y = series),
+            fun.data = "mean_sdl",
+            geom = "errorbar") +
+  labs(x = "Region Name", y = "Mean Series Rate",
+       title = "Mean Vaccination Rate, Per Region") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+
+```
+
+mean_sdl: Calculates the mean plus or minus **two** standard deviations (in this case, for each region)
+
+Mean vaccination rates were highest in the New England and New York Islands, while they were lowest in the Southeast.
+
+```{r}
+covid_state %>% 
+  ggplot() +
+  stat_summary(aes(x = region_name, y = deaths),
+            fun.data = "mean_sdl",
+            geom = "errorbar") +
+  labs(x = "Region Name", y = "Mean Death Rate",
+       title = "Mean Death Rate, Per Region") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```
+
+Mean average death rates were highest in the South Central and Southeast region. The South Central and Central Plains had the lowest standard deviations from the mean average death rates.
+
+### **7. Make a map showing the spatial trend in COVID deaths in the US**
+
+-   Use `geom_polygon` and `map_data`. Modify the given code.
+
+-   Merge the `map_data` data.frame with your COVID data.frame to add in the COVID data to the map data. Hint: use `left_join`.
+
+-   Use a color palette with custom colors
+
+-   Make sure that your legend is labelled correctly.
+
+-   Add a \* or other label for the top 10 states in highest death rate.
+
+-   Make sure that the aspect ratio is appropriate
+
+-   Describe your observations
+
+-   Describe the trend in COVID death rates across the US
+
+```{r, warning=FALSE}
+library(maps)
+library(stringr)
+
+US_map <- map_data("state")
+US_map$region <- str_to_title(US_map$region)
+
+US_map <- left_join(US_map, covid_state, by = c("region" = "state_name")) %>% 
+  mutate(state = region)
+
+top_10 <- US_map %>%
+  summarize(
+    mean_long = mean(long),
+    mean_lat = mean(lat),
+    .by = c("state", "region_name", "deaths")) %>% 
+  arrange(desc(deaths)) %>% head(10)
+
+
+US_map %>% filter(!is.na(region_name)) %>% 
+  ggplot(aes(x = long, y = lat, group = group, fill = region_name)) +
+  scale_fill_brewer(name = "Region Name", palette = "PiYG") +
+  geom_polygon(color = "white") + 
+  geom_text(data = top_10,
+            aes(x = mean_long, y = mean_lat,
+                label = "*"),
+            inherit.aes = FALSE,
+            color = "black", size = 6) +
+  theme(aspect.ratio = 0.75)
+```
+
+Many of the states in the top-ten deaths rate list were from the Southern Regions (Pacific, South Central, and Southeast).
+
+### **8. Use a ggplot extension**
+
+-   Pick an extension (except `cowplot`) from [here](https://exts.ggplot2.tidyverse.org/gallery/) and make a plot of your choice using the COVID data
+
+-   You might want to try examples that come with the extension first (e.g. `ggtech`, `gganimate`, `ggforce`)
+
+```{r}
+library(gganimate)
+library(gifski)
+library(av)
+
+## Make Deaths Cumulative
+all_deaths <- c()
+for (state_x in unique(covid$state_name)){
+  
+  state_deaths <- covid %>% 
+    filter(state_name == state_x) %>% 
+    pull(deaths)
+  
+  state_deaths_cumul <- c(state_deaths[1])
+  
+  # Calculating Cumulative Deaths per State
+  for(x in 2:length(state_deaths)){
+  state_deaths_cumul <- append(state_deaths_cumul, 
+                                   state_deaths_cumul[x-1] +
+                                     state_deaths[x])
+  }
+  all_deaths <- append(all_deaths, state_deaths_cumul)
+}
+
+## Make Cases Cumulative
+all_cases <- c()
+for (state_x in unique(covid$state_name)){
+  
+  state_cases <- covid %>% 
+    filter(state_name == state_x) %>% 
+    pull(cases)
+  
+  state_cases_cumul <- c(state_cases[1])
+  
+  # Calculating Cumulative Deaths per State
+  for(x in 2:length(state_cases)){
+  state_cases_cumul <- append(state_cases_cumul, 
+                                   state_cases_cumul[x-1] +
+                                     state_cases[x])
+  }
+  all_cases <- append(all_cases, state_cases_cumul)
+}
+
+# Adjusting covid
+covid$deaths_cumul <- all_deaths
+covid <- covid %>% 
+  mutate(deaths_cumul_normalized = (deaths_cumul / pop) * 100000)
+
+covid$cases_cumul <- all_cases
+covid <- covid %>% 
+  mutate(cases_cumul_normalized = (cases_cumul / pop) * 100000)
+  
+
+covid %>% 
+  filter(cases_cumul_normalized != 0) %>% 
+  filter(deaths_cumul_normalized != 0) %>% 
+  ggplot(aes(cases_cumul_normalized, deaths_cumul_normalized, 
+                      size = pop, colour = state)) +
+  geom_point(alpha = 0.7, show.legend = FALSE) +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  facet_wrap(~region_name, nrow = 2) +
+  # Here comes the gganimate specific bits
+  labs(title = 'Date: {frame_time}', 
+       x = 'Cumulative Cases per 100,000 population', 
+       y = 'Cumulative Deaths per 100,000 population') +
+  transition_time(date) +
+  ease_aes('linear')
+```
