@@ -1,0 +1,175 @@
+---
+title: "Lab 5"
+author: "Katie Zhao"
+format: html
+editor: visual
+embed-resources: true
+---
+
+# **Learning goals**
+
+-   Use the `merge()` function to join two datasets.
+
+-   Look at several different ways of loading data from different sources.
+
+-   Transform, filter, and mutate the data
+
+# **Lab description**
+
+This analysis will involve gathering COVID-19 related data from the CDC and then extensively processing it to merge the various datasets. To facilitate this, we will also source population data from the US Census to accurately calculate these rates.
+
+1.  **Load the `data.table` (and the `dtplyr` and `dplyr` packages if you plan to work with those). Alternatively, you can decide to work with `tidyverse`.**
+
+```{r}
+library(tidyverse)
+```
+
+2.  **The [US Census API User Guide](https://www.census.gov/content/dam/Census/data/developers/api-user-guide/api-user-guide.pdf) provides details on how to leverage this valuable resource. We are interested in vintage population estimates for years 2020 and 2021. Load in the `population` csv, and print out the first few rows of the matrix. Hint: the first row of the matrix will be the variable names and this OK as we will fix in the next exercise.**
+
+```{r}
+url <- 'https://raw.githubusercontent.com/dmcable/BIOSTAT620W26/main/data/covid/population.csv'
+if (!file.exists("covid_processed.csv"))
+  download.file(
+    url = url,
+    destfile = "population.csv",
+    method   = "libcurl",
+    timeout  = 60
+    )
+population <- read.csv('population.csv')
+
+head(population)
+```
+
+3.  **Examine the `population` matrix you just created. Notice that 1) it is not tidy, 2) the column types are not what we want, 3) there is a redundant column for index, and 4) the first row is a header. Here are some recommendations for how to clean the data:**
+
+-   Convert `population` to a tidy dataset.
+
+-   Make the first row the header
+
+-   Remove the unnecessary index column and the state ID column
+
+-   Change the name of the column with state names to `state_name`.
+
+-   Add a column with state abbreviations called `state`. Make sure you assign the abbreviations for DC and PR correctly.
+
+Hint 1: Use the janitor package to make the first row the header.
+
+Hint 2: Use `setNames(state.abb, state.name)` to map state names to abbreviations.
+
+```{r}
+# Make the first row the header
+population <- janitor::row_to_names(population, 1)
+
+# Tidy Dataset
+population <- population %>% pivot_longer("POP_2020":"POP_2021", 
+               names_to = "Year", values_to = "Population")
+population <- population %>% mutate(Year = str_remove(Year, "POP_"))
+
+# Chance the name of the column with state names to state_name
+population <- population %>% mutate(state_name = NAME) %>% 
+  select(-1, -state, -NAME)
+
+# Add a column with state abbreviations called state. Make sure you assign the abbreviations for DC and PR correctly
+all_states <- setNames(state.abb, state.name)
+population <- population %>% mutate(state = all_states[state_name]) %>% 
+  mutate(state = case_when(
+             state_name == "District of Columbia" ~ "DC",
+             state_name == "Puerto Rico" ~ "PR",
+             TRUE ~ state
+           ))
+```
+
+4.  **The following URL:**
+
+```         
+url <- "https://github.com/datasciencelabs/2024/raw/refs/heads/main/data/regions.json"
+```
+
+**points to a JSON file that lists the states in the 10 Public Health Service (PHS) defined by CDC. We want to add these regions to the `population` dataset. To facilitate this create a dataframe called `regions` that has columns `state_name`, `region`, and `region_name`. For this exercise, we recommend:**
+
+-   **Split the states into separate rows. Hint: look up the `unnest` function.**
+
+-   **One of the regions has a long name. Change it to something shorter.**
+
+-   **Print the first few rows of regions.**
+
+-   **Make sure that the region is a factor.**
+
+```{r}
+library(jsonlite)
+url <- "https://github.com/datasciencelabs/2024/raw/refs/heads/main/data/regions.json"
+regions <- fromJSON(url) # use fromJSON to read as a data.frame
+```
+
+```{r}
+regions <- regions %>% unnest(states) %>% 
+  mutate(state_name = states) %>% select(-states) %>% 
+  mutate(region_name = case_when(
+    region_name == "New York and New Jersey, Puerto Rico, Virgin Islands" ~ "New_York_Islands", 
+    TRUE ~ region_name
+  )) %>% 
+  mutate(region = as.integer(region))
+
+head(regions)
+
+regions %>% mutate(region = factor(region))
+```
+
+5.  **Add a region and region name columns to the `population` data frame using the merging or joining methods we have learned. Print out the first few rows. Hint: consider `left_join`.**
+
+```{r}
+library(lubridate)
+pop_region <- left_join(population, regions, by = c("state_name")) %>% 
+  mutate(Year = as.integer(Year))
+```
+
+5.  **From reading <https://data.cdc.gov/> we learn the endpoint `https://data.cdc.gov/resource/pwn4-m3yp.json` provides state level data from SARS-COV2 cases. We use httr2 tools to download this into a data frame. Question: what would happen and why if you replaced `"?$limit=10000000000"` with `""`? \<** [Limits the number of observations captured to 1000]{.underline} \>
+
+```{r}
+library(httr2)
+api <- "https://data.cdc.gov/resource/pwn4-m3yp.json"
+request <- request(paste0(api,paste0("?$limit=10000000000")))
+response <- request %>%  req_perform() %>% resp_body_string()
+cases_raw <- fromJSON(response)
+head(cases_raw)
+```
+
+7.  **Wrangle the `cases_raw` to produce a data frame with columns `state`, `date` (should be the end date) and `cases`. For this task:**
+
+-   **Make sure the cases are numeric and the dates are in `Date` format. Hint: check out the `lubridate` package.**
+
+-   **Print out the first several rows.**
+
+```{r}
+library(lubridate)
+cases_raw <- cases_raw %>% 
+  select(state, end_date, tot_cases)
+
+cases_raw <- cases_raw %>% 
+  mutate(date = str_remove(end_date, "T00:00:00.000"),
+         date = ymd(date),
+         cases = tot_cases) %>% 
+  select(-end_date, -tot_cases) %>% 
+  mutate(Year = year(date))
+
+head(cases_raw)
+```
+
+8.  **Optional freestyle. Here are some ideas:**
+
+-   **Merge the cases dataframe with the population data.**
+
+-   **Use the `as_date`, `ymd_hms`, `epiweek` and `epiyear` functions in the lubridate package to get a week and year for each data point.**
+
+-   **Order your data by date within each state.**
+
+```{r}
+covid <- left_join(cases_raw, pop_region, by = c("state", "Year")) %>% 
+  arrange(state, date)
+
+covid <- covid %>% 
+  mutate(epiweek = epiweek(date)) %>% 
+  mutate(epiyear = epiyear(date))
+  
+
+```
