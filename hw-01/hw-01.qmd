@@ -1,0 +1,465 @@
+---
+title: "HW-01"
+author: "Katie Zhao"
+format: html
+editor: visual
+embed-resources: true
+---
+
+## Loading Packages
+
+```{r}
+library(tidyverse)
+```
+
+## Step 1:
+
+**(20 points) Given the formulated question from the assignment description, you will now conduct EDA Checklist items 1-5. First, download 2005 and 2025 PM2.5 data for all sites in Michigan from the [EPA Air Quality Data website](https://www.epa.gov/outdoor-air-quality-data/download-daily-data), then read the data into R.**
+
+```{r}
+epa_2005 <- read.csv("2005.csv")
+epa_2025 <- read.csv("2025.csv")
+```
+
+**For each of the two datasets, check the dimensions, headers, footers, variable names and variable types.**
+
+```{r}
+dim(epa_2005)
+str(epa_2005)
+
+dim(epa_2025)
+str(epa_2025)
+
+head(epa_2005)
+tail(epa_2005)
+
+head(epa_2025)
+tail(epa_2025)
+
+# Same column names in both datasets
+match(colnames(epa_2005), colnames(epa_2025))
+
+# Number of Unique Local Sites in each dataset
+length(unique(epa_2005$Site.ID))
+length(unique(epa_2025$Site.ID))
+```
+
+**Check the distribution of the key variable we are analyzing (PM).**
+
+```{r}
+par(mar = c(5.1, 4.1, 4.1, 2.1), mfrow = c(1,2))
+hist(epa_2005$Daily.Mean.PM2.5.Concentration, 
+     xlab = "Daily Mean PM2.5\nConcentration (ug/m3 LC)",
+     main = "Daily Mean PM2.5\nConcentrations in 2005")
+
+hist(epa_2025$Daily.Mean.PM2.5.Concentration, 
+     xlab = "Daily Mean PM2.5\nConcentration (ug/m3 LC)",
+     main = "Daily Mean PM2.5\nConcentrations in 2025")
+
+summary(epa_2005$Daily.Mean.PM2.5.Concentration)
+summary(epa_2025$Daily.Mean.PM2.5.Concentration)
+```
+
+**Write up a summary of all of your findings.**
+
+Both data sets (2005 and 2025) have the same number of columns and the same column names (both data sets collect the same "features" of each observation in the different years. However, in 2005, only 5280 observations were collected, whereas in 2025 9934 observations were collected. Additional analysis reveals that in 2005, data was collected for 34 unique site IDs, but in 2025 data was collected for 27 unique site IDs.
+
+Data was collected in string, numerical, character, and integer types. Some notable features of each observation that were collected include Date, Site ID, Daily Mean PM2.5 Concentration, Method of Collection, as well as the Site Latitude and Longitude.
+
+When specifically looking at a historgram with the marginal distributions of the Daily Mean PM2.5 Concentration data, both years show distributions that are skewed right. The median \[11 (ug/m3 LC)\] and mean \[13.77 (ug/m3 LC)\] of the 2005 Daily Mean PM2.5 Concentrations are higher than the median \[6.3 (ug/m3 LC)\] and mean \[8.304 (ug/m3 LC)\] of the 2025 concentrations. Both have minimum concentrations of 0 (ug/m3 LC), but the maximum PM2.5 daily mean concentration in 2005 is 81.60 (ug/m3 LC), while the maximum in 2025 is 116 (ug/m3 LC).
+
+## Step 2:
+
+**Combine the two years of data into one data frame. Use the `Date` variable to create a new column for year, which will serve as an identifier.**
+
+```{r}
+epa <- rbind(epa_2005, epa_2025)
+epa <- epa %>% 
+  mutate(Year = case_when(
+    str_detect(Date, "2005$") ~ 2005,
+    TRUE ~ 2025
+  )) %>% 
+  relocate(Year, .after = Date)
+
+```
+
+**Change the names of the key variables so that they are easier to refer to in your code.**
+
+```{r}
+epa <- epa %>% 
+  rename(PM2.5 = Daily.Mean.PM2.5.Concentration, Site.Name = Local.Site.Name,
+          AQI = Daily.AQI.Value, Latitude = Site.Latitude, 
+         Longitude = Site.Longitude, Method = Method.Description)
+```
+
+## Step 3:
+
+**Create a basic map (or maps) in either `leaflet` or `ggplot` showing the locations of the monitoring sites, using different colors for each year.**
+
+```{r}
+library(leaflet)
+leaflet(epa) %>%
+  addProviderTiles('OpenStreetMap') %>% 
+  addCircles(lat=~Latitude,lng=~Longitude, opacity=1,
+             color = ~ifelse(Year == "2005", "red", "blue"),
+             # Red is 2005, Blue is 2025
+             fillOpacity=1, radius=100)
+```
+
+**Summarize the spatial distribution of the sites. Does this distribution change from 2005 to 2025?**
+
+The sites that was data was collected at in 2005 are colored red, while the sites in 2025 are colored blue. Overall, in both years, a clear cluster of sites is centered around the Metro Detroit area. Both years also have sites along the western edge of the Lower Peninsula, with a sparser number in the center of the state. There are fewer sites in the Upper Peninsula compared to the Lower Peninsula in both years.
+
+The distribution of sites does change from 2005 to 2025. In the lower Peninsula, more sites appear in the middle of the state compared to 2005. Additionally, in 2005, sets of sites were located on the horizontal ends of Upper Peninsula, while in 2025, the sites were located moreso in the middle of the UP, with one additional site on the tip of Minnesota along Lake Superior.
+
+## Step 4:
+
+**Check for any data issues such as missing or implausible values of PM2.5 in the combined dataset.**
+
+```{r}
+
+epa$PM2.5[epa$PM2.5 == ""] <- NA
+mean(is.na(epa$PM2.5))
+summary(epa$PM2.5)
+
+# Highest PM2.5 values in the dataset
+tail(sort(epa$PM2.5), 20)
+
+epa %>% arrange(desc(PM2.5)) %>% 
+  select(Date, PM2.5, Site.Name) %>% 
+  head(20)
+
+# Number of PM2.5 values above 35 ug/m3 LC
+mean(epa$PM2.5 > 35) * length(epa$PM2.5)
+
+# Lowest PM2.5 values in the dataset
+epa %>% arrange(PM2.5) %>% 
+  select(Date, PM2.5, Site.Name) %>% 
+  head(20)
+mean(epa$PM2.5 < 1) * length(epa$PM2.5)
+```
+
+There are no missing (NA) values in the PM2.5 dataset. 75% of the data values is between 0-12.5 ug/m3 LC. The maximum Daily Mean PM2.5 Concentration that was collected was 116 ug/m3 LC, which may be a more implausible value (the second highest value is 100.6 ug/m3 LC, \~16 units lower than the maximum). There are no negative PM2.5 values in this dataset.
+
+These two observations were collected on 7/30/2025 and 06/03/2025, respectively, at the *Negaunee Township, Off Pump House Road, Pump House #2* site and used the same method of collection, *Teledyne T640 at 5.0 LPM w/Network Data Alignment*.
+
+According to the Indoor Air Hygiene Institute, PM2.5 daily values above 35 are concerning. In the dataset, 375 observations (2.46%) were recorded with PM2.5 values above 35.
+
+Though not as concerning as high PM2.5 values, it may also be noting lower PM2.5 values in the dataset. Oftentimes, seeing readings of 0 or near 0 PM2.5 is very rare, as that would require "exceptionally clean air." There are 101 observations in this data with recorded PM2.5 less than 1, with four 0 PM2.5 readings (two of which were from *NORTH OF EASTERDAY AVE LK SUPERIOR STATE UNIV* site and used the same collection method, *Acceptable PM2.5 AQI & Speciation Mass*).
+
+## Step 4b:
+
+**Let’s look more closely at the methods used for data collection. Look at the distribution of the method code variable. Examine the two most common method codes in the [EPA PM2.5 Codetable](https://aqs.epa.gov/aqsweb/documents/codetables/methods_speciation.html), and describe your findings.**
+
+```{r}
+
+# Imputting NA for empty cells
+epa$Method[epa$Method.Code == ""] <- NA
+
+mean(is.na(epa$Method.Code))
+epa$Method.Code <- factor(epa$Method.Code)
+
+epa %>% 
+  group_by(Method.Code) %>% 
+  summarize(count = n()) %>% 
+  arrange(desc(count))
+```
+
+The two most common methods codes, overall in 2005 and 2025, were 118 (*R & P Model 2025 PM2.5 Sequential w/WINS)* and 636 (*Teledyne T640 at 5.0 LPM w/Network Data Alignment enabled)*, with 4374 and 3941 instances of sites using those two methods, respectively. There are also 2543 missing values for descriptions of the methods used to collect PM2.5 samples.
+
+**Calculate the proportion of missing values and method code for each year and report any temporal patterns you see in these observations. Why might these temporal patterns matter?**
+
+```{r}
+
+epa %>% 
+  filter(Year == 2005) %>% 
+  group_by(Method.Code) %>% 
+  summarize(count = n(), prop = count / 5280) %>% 
+  arrange(desc(count))
+
+epa %>% 
+  filter(Year == 2025) %>% 
+  group_by(Method.Code) %>% 
+  summarize(count = n(), prop = count / 9934) %>% 
+  arrange(desc(count))
+
+```
+
+This analysis reveals that there was no missing Methods data in 2005. All 2543 instances of missing Methods data were from collections made in 2025, and account for 48.1% of the Methods data in 2025. This reveals an interesting temporal issue, signaling the data in 2005 is more complete than the data in 2025. This pattern may matter because it could signal that the data in 2025 is not complete and may be updated soon, or that due to structural changes the data collected in 2025 is "less precise" (more speculative).
+
+Also of note, the most popular collection method of 2005 was118 (*R & P Model 2025 PM2.5 Sequential w/WINS)* (82.8%) and 636 (*Teledyne T640 at 5.0 LPM w/Network Data Alignment enabled* in 2025) (74.6%). This matches the previous analysis, that found these were the two most popular collection methods in the combined 2005 and 2025 dataset. *Teledyne T640 at 5.0 LPM w/Network Data Alignment enabled* was also not a method listed in 2005, signaling that it is likely a newer method or gained more favor for usage in the last 20 years.
+
+Of note, the most common methods used in 2005 (118, 810, and 707) all have an "intermittent" recording mode. That is contrasted with the most common methods used in 2025 (636 and 170) that have a "continuous" recording mode. Thus, it is possible the Daily Mean PM2.5 values collected in 2025 could be more precise than those in 2005 due to improvements in technology—which is worth noting when in Step 5, these data are directly compared to one another and treated as "equal/same," when they may differ in some capacities. That being said, these comparisons are still important in getting an overall picture of differences in PM2.5 levels between the two years.
+
+## Step 5:
+
+Explore the main question of interest at three different levels of spatial resolution. Create data visualizations (e.g. boxplots, histograms, line plots, violin plots) **and** summary statistics that best suit each level of the analysis. Be sure to write up explanations of what you observe at each level. For levels 2 and 3, include at least one spatial plot.
+
+**Primary Question: The primary question you will answer is whether daily concentrations of PM (particulate matter air pollution with aerodynamic diameter less than 2.5 m) decreased in Michigan over the 20 years spanning from 2005 to 2025.**
+
+-   [**Level 1: State. Examine the primary question for the entire state.**]{.underline}
+
+```{r}
+epa %>% 
+  ggplot(aes(x = PM2.5)) +
+  geom_histogram(color = "black", fill = "blue", binwidth = 5) +
+  facet_wrap(~Year) +
+  labs(x = "Daily Mean PM2.5 Levels (ug/m3 LC)",
+       y = "Counts",
+       title = "Figure 1a: Daily Mean PM2.5 Levels of Michigan Sites in 2005 & 2025") +
+  theme_classic() +
+  theme(aspect.ratio = 1)
+```
+
+Figure 1a reveals that the general distribution of daily mean PM2.5 levels across Michigan appears to be more skewed in 2025 than 2005 (the density/mass of recorded levels in 2025 below 30 ug/m3 LC, for example, is larger than in 2005). This marginally begins to suggest a potential decrease in recorded daily mean PM2.5 levels between 2005 and 2025. However, it is also worth noting that there were \~4,000 more observations collected in 2025 and 2005, which also may skew interpretations of the histograms (the range of counts in 2025 is much higher than in 2005).
+
+```{r}
+epa %>% 
+  summarize(
+    mean_PM2.5 = mean(PM2.5),
+    .by = c("Year", "Site.ID")
+  ) %>% 
+  ggplot() +
+  geom_violin(aes(x = 1, y = mean_PM2.5), fill = "blue") +
+  theme_classic() +
+  facet_wrap(~Year) + 
+  labs(x = NULL,
+       y = "Mean PM2.5 Level (ug/m3 LC)",
+       title = "Figure 1b: Overall Mean PM2.5 Levels of Michigan Sites in 2005 & 2025 ") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        aspect.ratio = 1)
+
+```
+
+In Figure 1b, the mean of "Daily Mean PM2.5 Levels" for every unique Michigan collection site is calculated in 2005 and 2025. Here, a clearer (and slightly more "standardized") trend begins to form: the distribution of overall mean PM2.5 sites in 2025 is centered around a lower PM2.5 level compared to 2005. The median of the 2025 data is clearly lower than 2005, and the range of the 2025 appears to be smaller than the 2005. This starts to further suggest that overall, PM2.5 levels in Michigan appear to have generally decreased between 2005 and 2025.
+
+```{r}
+epa %>% 
+  summarize(
+    mean_PM2.5 = mean(PM2.5),
+    .by = c("Year", "Site.ID")
+  ) %>% 
+  group_by(Year) %>% 
+  summarize(Min_PM2.5 = min(mean_PM2.5), 
+            Max_PM2.5 = max(mean_PM2.5), 
+            Median_PM2.5 = median(mean_PM2.5),
+            Range = Max_PM2.5 - Min_PM2.5)
+```
+
+This chart concretely defines the trends seen in Figure 1b. The median of the the overall means of "Daily Mean PM2.5 Levels" for every unique Michigan site is 14.11 ug/m3 LC in 2005, and 7.97 ug/m3 LC in 2025. Of note, the maximum of these overall means in 2025 is 11.58 ug/m3 LC, which is lower than the 2005 median of 14.11 ug/m3 LC. The range of 2025 values is also lower than 2005, suggesting a tighter distribution of overall 2025 PM2.5 values around the lower 2025 median compared to the 2005 distribution.
+
+```{r}
+michigan_medians <- epa %>% 
+  summarize(
+    mean_PM2.5 = mean(PM2.5),
+    .by = c("Year", "Site.ID")
+  ) %>% 
+  group_by(Year) %>% 
+  summarize(Min_PM2.5 = min(mean_PM2.5), 
+            Max_PM2.5 = max(mean_PM2.5), 
+            Median_PM2.5 = median(mean_PM2.5),
+            Range = Max_PM2.5 - Min_PM2.5) %>% 
+  pull(Median_PM2.5)
+
+((michigan_medians[2] - michigan_medians[1])/michigan_medians[1])*100
+```
+
+Furthermore, there was a 43% decrease in the median of "Overall PM2.5 Means" between 2005 and 2025.
+
+Overall, this analysis provides strong evidence that overall, PM2.5 levels across sites in Michigan decreased between 2005 and 2025.
+
+-   [**Level 2: County. Examine the primary question for every county in Michigan.**]{.underline}
+
+```{r}
+
+epa_2005_county <- epa_2005 %>% 
+  summarize(
+    PM2.5_2005 = mean(Daily.Mean.PM2.5.Concentration),
+    .by = c(County)
+  )
+
+epa_2025_county <- epa_2025 %>% 
+  summarize(
+    PM2.5_2025 = mean(Daily.Mean.PM2.5.Concentration),
+    .by = c(County)
+  )
+
+# Counties that were included in both years
+epa_county <- inner_join(epa_2005_county, epa_2025_county, 
+                         by = "County") %>%
+  # Difference in average PM2.5 levels between 2025 and 2005
+  mutate(Difference = PM2.5_2025 - PM2.5_2005,
+         Percent_Change = (Difference / PM2.5_2005)*100)
+
+# Michigan Map
+michigan <- map_data("county", region = "michigan") %>% 
+  mutate(County = str_to_title(subregion))
+
+# EPA County Data + Michigan Map
+michigan_epa <- left_join(michigan, epa_county, 
+                          by = "County")
+
+
+michigan_epa %>% 
+  ggplot(aes(x = long, y = lat, group = group, fill = Difference)) +
+  geom_polygon(color = "white") +
+  theme_classic() +
+  theme(palette.colour.continuous = c("#006400", "#FC9272", "#DE2D26")) +
+  scale_fill_continuous(name = "Mean PM2.5 Difference\n(ug/m3 LC)",
+                        na.value = "lightgrey") +
+  labs(x = "Longitude",
+       y = "Latitude",
+    title = "Figure 2a: Overall Mean PM2.5 Level Differences from\n2005 to 2025 in Michigan Counties") +
+  theme(aspect.ratio = 1)
+
+```
+
+In this analysis, the mean of "Daily Mean PM2.5 Levels" (ug/m3 LC) for every Michigan county (with available site data) was calculated in 2005 and 2025. There were 18 counties that appeared in both datasets, so the difference in mean PM2.5 levels (mean 2025 PM2.5 - mean 2005 PM2.5 level) was calculated for each of those counties. Thus, "positive trends" in decreasing PM2.5 levels across counties are associated with larger (in magnitude) negative differences between 2025 and 2005.
+
+Figure 2a reveals that counties in the lower peninsula, specifically in the southeast region, experienced the greatest reductions in mean PM2.5 levels between 2005 and 2025. Though there is less data available for counties in the upper peninsula, the available data notably shows that one county (Schoolcraft) experienced an increase in mean PM2.5 levels between 2005 and 2025.
+
+Overall, this heat map does suggest that mean PM2.5 level decreased for almost all Michigan counties between 2005 and 2025, though the magnitude of the decreases varied.
+
+```{r}
+# Boxplot / Violin Plot of County Differences
+epa_county %>% 
+  ggplot(aes(x = 1, y = Difference)) +
+  geom_boxplot() +
+  geom_jitter(color = "blue", size = 3) +
+  theme_classic() +
+  theme(aspect.ratio = 1,
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  labs(x = NULL,
+       y = "Mean PM2.5 Difference (ug/m3 LC)\n",
+       title = "Figure 2b: Overall Mean PM2.5 Level Differences from\n2005 to 2025 in Michigan Counties")
+
+summary(epa_county$Difference)
+```
+
+Figure 2b focuses on the distribution of the differences in mean PM2.5 levels between 2025 and 2005 for these 18 Michigan counties. The boxplot shows only one county experienced an increase it is mean PM2.5 level, and that this was an outlier from the rest of the county data.
+
+The median of these differences is -5.67 (ug/m3 LC), with a range of -7.54 to 0.97 (ug/m3 LC). The 75% percentile is -4.19 (ug/m3 LC), which shows that most of the counties experienced a decrease in mean PM2.5 levels between 2005 and 2025.
+
+```{r}
+michigan_epa %>% 
+  ggplot(aes(x = long, y = lat, group = group, fill = Percent_Change)) +
+  geom_polygon(color = "white") +
+  theme_classic() +
+  theme(palette.colour.continuous = c("#006400", "#FC9272", "#DE2D26")) +
+  scale_fill_continuous(name = "Percent Change (%) in\nMean PM2.5",
+                        na.value = "lightgrey") +
+  labs(x = "Longitude",
+       y = "Latitude",
+    title = "Figure 2c: Percent Change in Overall Mean PM2.5 from\n2005 to 2025 in Michigan Counties") +
+  theme(aspect.ratio = 1)
+```
+
+Figure 2c depicts the overall trend of decreases in PM2.5 levels in Michigan between 2005 and 2025 in a similar fashion to 2a, but now through calculating the percent change in the overall mean PM2.5 between 2005 and 2025 for 18 Michigan counties. This plot shows that most counties experiences between a 20-60% decrease in overall mean PM2.5 levels, while only one county experienced a small percent increase it is overall mean PM2.5 level. Of note, again, is that most of the counties that saw a percent decrease in PM2.5 levels were concentrated in the lower peninsula.
+
+```{r}
+
+# Largest Differences (less PM2.5 in 2025)
+epa_county %>% arrange(Difference) %>% select(-Percent_Change) %>% head()
+
+# Smallest Differences (more / not a lot less PM2.5 in 2025)
+epa_county %>% arrange(Difference) %>% select(-Percent_Change) %>% tail()
+
+```
+
+This table reveals that the counties that experienced the greatest decreases in mean PM2.5 levels were Wayne, Washtenaw, and Oakland counties. On the other hand, Schoolcraft saw a slight increase in its mean PM2.5 level in 2025 compared to 2025 (0.97 ug/m3 LC), while Keweenaw and Allegan counties saw the smallest magnitude decreases in mean PM2.5 levels.
+
+```{r}
+# Largest Differences (less PM2.5 in 2025)
+epa_county %>% arrange(Percent_Change) %>% select(-Difference) %>% head()
+
+# Smallest Differences (more / not a lot less PM2.5 in 2025)
+epa_county %>% arrange(Percent_Change) %>% select(-Difference) %>% tail()
+```
+
+The counties that experienced the greatest percent decreases in mean PM2.5 levels were Keweenaw, Genesee, and Washtenaw counties. On the other hand, Schoolcraft saw a small percent increase in its mean PM2.5 level in 2025 compared to 2025 (17.47%), while Allegan and Bay counties saw the smallest magnitude decreases in mean PM2.5 levels.
+
+-   [**Level 3: City. Restrict the data to sites in Wayne county and examine the primary question for every site.**]{.underline}
+
+```{r}
+# Subsetting data
+epa_Wayne <- epa %>% 
+  filter(County == "Wayne") %>% 
+  summarize(
+    mean_PM2.5 = mean(PM2.5),
+    .by = c("Year", "Site.Name", "Site.ID", "Latitude", "Longitude")
+  )
+
+wayne <- michigan %>% 
+  filter(County == "Wayne")
+
+############
+
+epa_Wayne %>% 
+  ggplot() +
+  geom_polygon(data = wayne,
+               aes(x = long, y = lat, group = group),
+               color = "white", fill = "grey") +
+  geom_text(data = epa_Wayne,
+            aes(x = Longitude, y = Latitude,
+                label = "*", color = mean_PM2.5),
+            inherit.aes = FALSE, size = 12) +
+  theme_classic() +
+  theme(palette.colour.continuous = c("#006400", "#FC9272", "#DE2D26"),
+        aspect.ratio = 1) +
+  labs(x = "Longitude",
+       y = "Latitude",
+       title = "Figure 3a: Overall Mean PM2.5 Levels of Wayne County\nSites in 2005 and 2025",
+       color = "Mean PM2.5 Level of\nYear (ug/m3 LC)") +
+  facet_wrap(~Year) 
+```
+
+Figure 3a shows a heat map representing the mean "Daily Mean PM2.5 Levels" for unique Wayne county sites in 2005 and 2025. Here, a clear trend emerges. In 2005, most of the sites had an overall mean PM2.5 level between \~15-20 ug/m3 LC (colored in red on the map). Contrast that to 2025, where most of the Wayne county sites had a overall mean PM2.5 level between \~7.5-12.5 ug/m3 LC. Visually, there is strong evidence suggesting that PM2.5 levels overall decreased at these sites in Wayne county during the 20 year period.
+
+```{r}
+epa_Wayne %>% 
+  ggplot(aes(x = 1, y = mean_PM2.5)) +
+  geom_boxplot() +
+  geom_jitter(color = "blue", size = 3) +
+  facet_wrap(~Year) +
+  theme_classic() +
+  theme(aspect.ratio = 1,
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  labs(x = NULL,
+       y = "Mean PM2.5 Level of Year (ug/m3 LC)",
+       title = "Figure 3b: Overall Mean PM2.5 Levels of Wayne\nCounty Sites in 2005 and 2025")
+
+epa_Wayne %>% 
+  group_by(Year) %>% 
+  summarize(Min_PM2.5 = min(mean_PM2.5),
+            Max_PM2.5 = max(mean_PM2.5),
+            Median_PM2.5 = median(mean_PM2.5),
+            Range = Max_PM2.5 - Min_PM2.5)
+```
+
+Figure 3b offers a more clear numeric interpretation of the visual results seen in Figure 3a. Here, the distribution of all the "overall Wayne site means" in 2005 and 2025 are plotted. Clearly, the median of the 2005 overall means (16.40 ug/m3 LC) is noticeably higher than the 2025 median (9.14 ug/m3 LC). Even more, the maximum overall mean of 2025 is 11.58 ug/m3 LC, which is lower than the minimum overall mean of 2005 (14.89 ug/m3 LC).
+
+This strongly supports the trend that PM2.5 levels decreased at Wayne county collection sites between 2005 and 2025.
+
+```{r}
+
+Wayne_2005_sites <- epa_Wayne %>% 
+  filter(Year == 2005) %>% select(Site.Name, mean_PM2.5)
+Wayne_2025_sites <- epa_Wayne %>% 
+  filter(Year == 2025) %>% select(Site.Name, mean_PM2.5)
+
+inner_join(Wayne_2005_sites, Wayne_2025_sites, by = c("Site.Name"), 
+           suffix = c("_2005", "_2025")) %>% 
+  mutate(Difference = mean_PM2.5_2025 - mean_PM2.5_2005,
+         Percent_Change = (Difference / mean_PM2.5_2005)*100) %>% 
+  relocate(Difference, .after = Site.Name) %>% 
+  select(Site.Name, Difference, Percent_Change) %>% 
+  arrange(Difference)
+
+```
+
+In this final analysis, the four Wayne county sites that collected data in 2005 and 2025 were compared (all other sites were different across the two years). Similar to the previous analyses, the "overall means" of these sites were compared during the two years. Here, there overall means of all these sites decreased by a magnitude roughly between 8-10 ug/m3 LC between 2005 and 2025. The percent decrease in the overall means of these sites was also between roughly 46% to 54% from 2005 to 2025.
+
+This provides even stronger evidence (from directly comparing exact sites overall PM2.5 levels in 2005 and 2025) that in Wayne county, overall PM2.5 levels dropped 2005 and 2025.
